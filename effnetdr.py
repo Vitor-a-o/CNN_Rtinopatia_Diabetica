@@ -21,21 +21,20 @@ import pandas as pd
 #from google.colab import drive
 #drive.mount('/content/drive')
 
-#file_path = "/content/drive/MyDrive/retinopathy-databases/diabetic-retinopathy-resized/"
-#img_path = "/content/drive/MyDrive/retinopathy-databases/diabetic-retinopathy-resized/resized_train/resized_train"
-file_path = "/home/vitoroliveira/CNN_Retinopatia_Diabética/"
-img_path = "/home/vitoroliveira/CNN_Retinopatia_Diabética/resized_train/"
+img_path = "C:\\Users\\Vitor\\Desktop\\resized_train\\resized_train"
+#file_path = "/home/vitoroliveira/CNN_Retinopatia_Diabética/"
+#img_path = "/home/vitoroliveira/CNN_Retinopatia_Diabética/resized_train/"
 csv_name = "trainLabels3.csv"
 
 # Carregar o CSV com os detalhes das imagens
-df = pd.read_csv(file_path + csv_name)
+df = pd.read_csv(csv_name)
 df = df.rename(columns={'image': 'image_id', 'level': 'dr_grade'})  # Ajuste conforme as colunas do seu CSV
 
 # Converter a coluna 'dr_grade' para string, se ainda não estiver
 df['dr_grade'] = df['dr_grade'].astype(str)
 
 # Amostrar uma fração dos dados
-df_sampled = df.sample(frac=0.02, random_state=43)
+df_sampled = df.sample(frac=0.1, random_state=43)
 
 # Dividir o conjunto amostrado em treino, validação e teste
 train_df, test_df = train_test_split(df_sampled, test_size=0.15, random_state=43)
@@ -121,17 +120,14 @@ for layer in base_model.layers:
 
 from tensorflow.keras.mixed_precision import set_global_policy
 
-# Configurar precisão mista
-set_global_policy('mixed_float16')
-
 model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
               loss='categorical_crossentropy',
               metrics=['accuracy'])
 
 import os
 # Caminho para o checkpoint salvo (ajuste conforme necessário)
-#checkpoint_path = '/content/drive/MyDrive/model_checkpoint.keras'
-checkpoint_path = '/home/vitoroliveira/CNN_Retinopatia_Diabética/model_checkpoint.keras'
+checkpoint_path = 'model_checkpoint.weights.h5'
+#checkpoint_path = '/home/vitoroliveira/CNN_Retinopatia_Diabética/model_checkpoint.keras'
 
 # Verificar se o checkpoint existe e carregar os pesos se existir
 if os.path.exists(checkpoint_path):
@@ -146,24 +142,33 @@ else:
 # Definir o callback para salvar o modelo atualizado
 checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
     filepath=checkpoint_path,
-    save_best_only=True
+    save_best_only=True,
+    monitor='val_loss',
+    mode='min',
+    save_weights_only=True
+)
+
+# Definir o callback para early stopping
+early_stopping_callback = tf.keras.callbacks.EarlyStopping(
+    monitor='val_loss',
+    patience=3,
+    restore_best_weights=True
 )
 
 import math
 
-steps_per_epoch = train_gen.samples // batch_size
-validation_steps = val_gen.samples // batch_size
+steps_per_epoch = math.ceil(train_gen.n / train_gen.batch_size)
+validation_steps = math.ceil(val_gen.n / val_gen.batch_size)
 
-
-epochs = 5  # Ajuste o número de épocas conforme necessário
+epochs = 10  # Ajuste o número de épocas conforme necessário
 
 history = model.fit(
     train_gen,
-    steps_per_epoch=steps_per_epoch,
+    #steps_per_epoch=steps_per_epoch,
     validation_data=val_gen,
-    validation_steps=validation_steps,
+    #validation_steps=validation_steps,
     epochs=epochs,
-    callbacks=[checkpoint_callback]
+    callbacks=[checkpoint_callback, early_stopping_callback]
 )
 
 # Avaliação no conjunto de teste
