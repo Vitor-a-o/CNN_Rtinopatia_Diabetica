@@ -21,13 +21,15 @@ import pandas as pd
 #from google.colab import drive
 #drive.mount('/content/drive')
 
-img_path = "C:\\Users\\Vitor\\Desktop\\resized_train\\resized_train"
-#file_path = "/home/vitoroliveira/CNN_Retinopatia_Diabética/"
-#img_path = "/home/vitoroliveira/CNN_Retinopatia_Diabética/resized_train/"
+#img_path = "C:\\Users\\Vitor\\Desktop\\resized_train\\resized_train"
+#file_path = ""
+
+file_path = "/home/vitoroliveira/CNN_Rtinopatia_Diabética/"
+img_path = "/home/vitoroliveira/resized_train/"
 csv_name = "trainLabels3.csv"
 
 # Carregar o CSV com os detalhes das imagens
-df = pd.read_csv(csv_name)
+df = pd.read_csv(file_path + csv_name)
 df = df.rename(columns={'image': 'image_id', 'level': 'dr_grade'})  # Ajuste conforme as colunas do seu CSV
 
 # Converter a coluna 'dr_grade' para string, se ainda não estiver
