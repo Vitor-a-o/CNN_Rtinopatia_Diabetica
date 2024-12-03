@@ -24,7 +24,7 @@ import pandas as pd
 #img_path = "C:\\Users\\Vitor\\Desktop\\resized_train\\resized_train"
 #file_path = ""
 
-file_path = "/home/vitoroliveira/CNN_Rtinopatia_Diabética/"
+file_path = "/home/vitoroliveira/CNN_Rtinopatia_Diabetica/"
 img_path = "/home/vitoroliveira/resized_train/"
 csv_name = "trainLabels3.csv"
 
