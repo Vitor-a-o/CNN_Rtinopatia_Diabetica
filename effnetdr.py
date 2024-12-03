@@ -34,7 +34,7 @@ df = df.rename(columns={'image': 'image_id', 'level': 'dr_grade'})  # Ajuste con
 df['dr_grade'] = df['dr_grade'].astype(str)
 
 # Amostrar uma fração dos dados
-df_sampled = df.sample(frac=0.1, random_state=43)
+df_sampled = df.sample(frac=0.05, random_state=43)
 
 # Dividir o conjunto amostrado em treino, validação e teste
 train_df, test_df = train_test_split(df_sampled, test_size=0.15, random_state=43)
@@ -156,11 +156,13 @@ early_stopping_callback = tf.keras.callbacks.EarlyStopping(
 )
 
 import math
+from sklearn.metrics import ConfusionMatrixDisplay
+from tensorflow.keras.callbacks import ReduceLROnPlateau
 
 steps_per_epoch = math.ceil(train_gen.n / train_gen.batch_size)
 validation_steps = math.ceil(val_gen.n / val_gen.batch_size)
 
-epochs = 10  # Ajuste o número de épocas conforme necessário
+epochs = 1  # Ajuste o número de épocas conforme necessário
 
 history = model.fit(
     train_gen,
@@ -177,53 +179,124 @@ print(f"Test Loss: {test_loss}")
 print(f"Test Accuracy: {test_accuracy}")
 
 # Obter as previsões e as classes reais para o cálculo do coeficiente kappa
+test_gen.reset()
+Y_pred = model.predict(test_gen, steps=test_gen.n // test_gen.batch_size + 1)
+y_pred = np.argmax(Y_pred, axis=1)
 y_true = test_gen.classes
-y_pred = np.argmax(model.predict(test_gen), axis=-1)
 
 # Calcular o coeficiente kappa
 kappa = cohen_kappa_score(y_true, y_pred, weights='quadratic')
 print(f"Cohen's Kappa: {kappa}")
 
-import matplotlib.pyplot as plt
+# Gerar relatório de classificação
+print(classification_report(y_true, y_pred))
 
-# Plotar Loss e Acurácia
+#Diretório para salvar as imagens
+output_dir = 'img'
+
+# Plotar a matriz de confusão
+cm_display = ConfusionMatrixDisplay.from_predictions(y_true, y_pred)
+plt.savefig(f'{output_dir}/confusion_matrix.png')
+plt.show()
+
+# Plotar Loss e Acurácia para o treinamento inicial
 plt.figure(figsize=(12, 5))
 
-# Loss
+# Treinamento
 plt.subplot(1, 2, 1)
 plt.plot(history.history['loss'], label='Train Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
-plt.title('Loss')
-plt.xlabel('Epochs')
+plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.title('Treinamento Inicial')
+plt.xlabel('Épocas')
 plt.ylabel('Loss')
 plt.legend()
 
-# Acurácia
+# Validação
 plt.subplot(1, 2, 2)
-plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.plot(history.history['val_loss'], label='Validation Loss')
 plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-plt.title('Accuracy')
-plt.xlabel('Epochs')
-plt.ylabel('Accuracy')
+plt.title('Validação Inicial')
+plt.xlabel('Épocas')
+plt.ylabel('Acurácia')
 plt.legend()
+
+plt.savefig(f'{output_dir}/training_metrics.png')
 
 plt.show()
 
-# Descongelar as últimas camadas do modelo base para fine-tuning
-for layer in base_model.layers[-20:]:
+# Descongelar todas as camadas do modelo base para fine-tuning
+for layer in base_model.layers:
     layer.trainable = True
 
-# Compilar novamente com uma taxa de aprendizado menor
-model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.00001),
+# Compilar novamente com uma taxa de aprendizado menor e otimizador adequado
+model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
               loss='categorical_crossentropy',
               metrics=['accuracy'])
 
+# Adicionar callback para reduzir a taxa de aprendizado se necessário
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-7)
+
 # Treinamento de ajuste fino
-fine_tune_epochs = 5
+fine_tune_epochs = 1
+total_epochs = epochs + fine_tune_epochs
+
 history_fine = model.fit(
     train_gen,
-    steps_per_epoch=train_gen.samples // train_gen.batch_size,
     validation_data=val_gen,
-    validation_steps=val_gen.samples // val_gen.batch_size,
-    epochs=fine_tune_epochs
+    epochs=total_epochs,
+    initial_epoch=history.epoch[-1] + 1,
+    callbacks=[checkpoint_callback, reduce_lr]
 )
+
+# Combinar histórico de treinamento
+acc = history.history['accuracy'] + history_fine.history['accuracy']
+val_acc = history.history['val_accuracy'] + history_fine.history['val_accuracy']
+loss = history.history['loss'] + history_fine.history['loss']
+val_loss = history.history['val_loss'] + history_fine.history['val_loss']
+
+# Avaliação no conjunto de teste após fine-tuning
+test_loss_fine, test_accuracy_fine = model.evaluate(test_gen)
+print(f"Test Loss after Fine-Tuning: {test_loss_fine}")
+print(f"Test Accuracy after Fine-Tuning: {test_accuracy_fine}")
+
+# Obter as previsões e as classes reais para o cálculo do coeficiente kappa após fine-tuning
+test_gen.reset()
+Y_pred_fine = model.predict(test_gen, steps=test_gen.n // test_gen.batch_size + 1)
+y_pred_fine = np.argmax(Y_pred_fine, axis=1)
+
+# Calcular o coeficiente kappa após fine-tuning
+kappa_fine = cohen_kappa_score(y_true, y_pred_fine, weights='quadratic')
+print(f"Cohen's Kappa after Fine-Tuning: {kappa_fine}")
+
+# Gerar relatório de classificação após fine-tuning
+print(classification_report(y_true, y_pred_fine))
+
+# Plotar a matriz de confusão após fine-tuning
+cm_display_fine = ConfusionMatrixDisplay.from_predictions(y_true, y_pred_fine)
+plt.savefig(f'{output_dir}/confusion_matrix_fine_tuning.png')
+plt.show()
+
+# Plotar Loss e Acurácia para o treinamento completo
+plt.figure(figsize=(12, 5))
+
+# Treinamento completo
+plt.subplot(1, 2, 1)
+plt.plot(range(total_epochs), loss, label='Train Loss')
+plt.plot(range(total_epochs), acc, label='Train Accuracy')
+plt.title('Treinamento Completo')
+plt.xlabel('Épocas')
+plt.ylabel('Loss e Acurácia')
+plt.legend()
+
+# Validação completa
+plt.subplot(1, 2, 2)
+plt.plot(range(total_epochs), val_loss, label='Validation Loss')
+plt.plot(range(total_epochs), val_acc, label='Validation Accuracy')
+plt.title('Validação Completa')
+plt.xlabel('Épocas')
+plt.ylabel('Loss e Acurácia')
+plt.legend()
+
+plt.savefig(f'{output_dir}/fine_tuning_metrics.png')
+
+plt.show()
