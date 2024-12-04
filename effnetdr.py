@@ -199,7 +199,7 @@ output_dir = 'img'
 # Plotar a matriz de confusão
 cm_display = ConfusionMatrixDisplay.from_predictions(y_true, y_pred)
 plt.savefig(f'{output_dir}/confusion_matrix.png')
-plt.show()
+#plt.show()
 
 # Plotar Loss e Acurácia para o treinamento inicial
 plt.figure(figsize=(12, 5))
@@ -224,7 +224,7 @@ plt.legend()
 
 plt.savefig(f'{output_dir}/training_metrics.png')
 
-plt.show()
+#plt.show()
 
 # Descongelar todas as camadas do modelo base para fine-tuning
 for layer in base_model.layers:
@@ -276,7 +276,7 @@ print(classification_report(y_true, y_pred_fine))
 # Plotar a matriz de confusão após fine-tuning
 cm_display_fine = ConfusionMatrixDisplay.from_predictions(y_true, y_pred_fine)
 plt.savefig(f'{output_dir}/confusion_matrix_fine_tuning.png')
-plt.show()
+#plt.show()
 
 # Plotar Loss e Acurácia para o treinamento completo
 plt.figure(figsize=(12, 5))
@@ -301,4 +301,4 @@ plt.legend()
 
 plt.savefig(f'{output_dir}/fine_tuning_metrics.png')
 
-plt.show()
+#plt.show()
