@@ -21,12 +21,12 @@ import pandas as pd
 #from google.colab import drive
 #drive.mount('/content/drive')
 
-#img_path = "C:\\Users\\Vitor\\Desktop\\resized_train\\resized_train"
-#file_path = ""
+img_path = "C:\\Users\\Vitor\\Desktop\\resized_train\\resized_train"
+file_path = ""
 
-file_path = "/home/vitoroliveira/CNN_Rtinopatia_Diabetica/"
-img_path = "/home/vitoroliveira/resized_train/"
-csv_name = "trainLabels3.csv"
+#file_path = "/home/vitoroliveira/CNN_Rtinopatia_Diabetica/"
+#img_path = "/home/vitoroliveira/resized_train/"
+#csv_name = "trainLabels3.csv"
 
 # Carregar o CSV com os detalhes das imagens
 df = pd.read_csv(file_path + csv_name)
@@ -129,7 +129,6 @@ model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
 import os
 # Caminho para o checkpoint salvo (ajuste conforme necessário)
 checkpoint_path = 'model_checkpoint.weights.h5'
-#checkpoint_path = '/home/vitoroliveira/CNN_Retinopatia_Diabética/model_checkpoint.keras'
 
 # Verificar se o checkpoint existe e carregar os pesos se existir
 if os.path.exists(checkpoint_path):
