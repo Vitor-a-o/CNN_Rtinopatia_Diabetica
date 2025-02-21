@@ -15,9 +15,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, cohen_kappa_score, classification_report, ConfusionMatrixDisplay
 
 # Configurações e caminhos
-IMG_PATH = "C:\\Users\\Vitor\\Desktop\\resized_train\\resized_train"
-CSV_PATH = "trainLabels3.csv"  # Certifique-se de ajustar o caminho se necessário
-CHECKPOINT_PATH = 'model_checkpoint.weights.h5'
+IMG_PATH = "/app/resized_train"
+CSV_PATH = "/app/CNN_Rtinopatia_Diabetica/trainLabels3.csv"  # Certifique-se de ajustar o caminho se necessário
+CHECKPOINT_PATH = '/app/CNN_Rtinopatia_Diabetica/model_checkpoint.weights.h5'
 SAMPLE_FRAC = 1
 BATCH_SIZE = 16
 TARGET_SIZE = (224, 224)
