@@ -18,11 +18,11 @@ from sklearn.metrics import confusion_matrix, cohen_kappa_score, classification_
 IMG_PATH = "C:\\Users\\Vitor\\Desktop\\resized_train\\resized_train"
 CSV_PATH = "trainLabels3.csv"  # Certifique-se de ajustar o caminho se necessário
 CHECKPOINT_PATH = 'model_checkpoint.weights.h5'
-SAMPLE_FRAC = 0.05
+SAMPLE_FRAC = 1
 BATCH_SIZE = 16
 TARGET_SIZE = (224, 224)
-EPOCHS = 1
-FINE_TUNE_EPOCHS = 1
+EPOCHS = 5
+FINE_TUNE_EPOCHS = 5
 OUTPUT_DIR = 'img'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
