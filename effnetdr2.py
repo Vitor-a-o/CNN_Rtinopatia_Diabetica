@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import tensorflow.keras.backend as K
 
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.applications import EfficientNetB3
@@ -13,6 +14,7 @@ from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLRO
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, cohen_kappa_score, classification_report, ConfusionMatrixDisplay
+from sklearn.utils import class_weight
 
 # Configurações e caminhos
 IMG_PATH = "/app/resized_train"
@@ -101,12 +103,27 @@ def build_model(input_shape, num_classes):
         
     return model, base_model
 
+def focal_loss(gamma=2.0, alpha=0.25):
+    
+    """Função de perda focal para lidar com classes desbalanceadas."""
+    
+    def focal_loss_fixed(y_true, y_pred):
+        eps = 1e-7
+        y_pred = K.clip(y_pred, eps, 1-eps)
+        
+        cross_entropy = -y_true * K.log(y_pred)
+        loss = alpha * K.pow(1-y_pred, gamma) * cross_entropy
+        
+        return K.sum(loss, axis=1)
+    
+    return focal_loss_fixed
+
 def compile_and_load(model, checkpoint_path, lr=1e-4):
     
     """Compila o modelo e tenta carregar um checkpoint se existir."""
     
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
-                  loss='categorical_crossentropy',
+                  loss=focal_loss(),
                   metrics=['accuracy'])
     
     if os.path.exists(checkpoint_path):
@@ -171,10 +188,18 @@ def main():
                                           save_weights_only=True)
     early_stopping_callback = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
     
+    # Aplica pesos de classe para lidar com o desbalanceamento
+    class_weights = class_weight.compute_class_weight('balanced',
+                                                      np.unique(train_gen.classes),
+                                                      train_gen.classes)
+    
+    class_weights_dict = dict(enumerate(class_weights))
+    
     # Treinamento inicial
     history = model.fit(
         train_gen,
         validation_data=val_gen,
+        class_weight=class_weights_dict,
         epochs=EPOCHS,
         callbacks=[checkpoint_callback, early_stopping_callback]
     )
@@ -201,7 +226,7 @@ def main():
         layer.trainable = True
         
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-                  loss='categorical_crossentropy',
+                  loss=focal_loss(),
                   metrics=['accuracy'])
     
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-7)
@@ -209,6 +234,7 @@ def main():
     history_fine = model.fit(
         train_gen,
         validation_data=val_gen,
+        class_weight=class_weights_dict,
         epochs=EPOCHS + FINE_TUNE_EPOCHS,
         initial_epoch=EPOCHS,
         callbacks=[checkpoint_callback, reduce_lr]
