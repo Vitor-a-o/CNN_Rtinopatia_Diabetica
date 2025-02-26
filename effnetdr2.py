@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import tensorflow.keras.backend as K
+import sklearn
 
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.applications import EfficientNetB3
@@ -15,6 +16,8 @@ from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLRO
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, cohen_kappa_score, classification_report, ConfusionMatrixDisplay
 from sklearn.utils import class_weight
+
+print(sklearn.__version__)
 
 # Configurações e caminhos
 IMG_PATH = "/app/resized_train"
@@ -191,7 +194,7 @@ def main():
     # Aplica pesos de classe para lidar com o desbalanceamento
     class_weights = class_weight.compute_class_weight('balanced',
                                                       np.unique(train_gen.classes),
-                                                      train_gen.classes)
+                                                      train_gen.classes,)
     
     class_weights_dict = dict(enumerate(class_weights))
     
