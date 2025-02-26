@@ -196,6 +196,8 @@ def main():
     
     class_weights_dict = dict(enumerate(class_weights))
     
+    kappa_history = []
+    
     # Treinamento inicial
     history = model.fit(
         train_gen,
@@ -214,9 +216,12 @@ def main():
     Y_pred = model.predict(test_gen, steps=math.ceil(test_gen.n / test_gen.batch_size))
     y_pred = np.argmax(Y_pred, axis=1)
     y_true = test_gen.classes
-    kappa = cohen_kappa_score(y_true, y_pred, weights='quadratic')
-    print(f"Cohen's Kappa: {kappa}")
     print(history.history)
+    
+    #Calcula Kappa e salva no histórico
+    kappa = cohen_kappa_score(y_true, y_pred, weights='quadratic')
+    kappa_history.append({"stage": "initial_training", "kappa": kappa})
+    print(f"Cohen's Kappa: {kappa}")
     
     # Salva os gráficos de matriz de confusão e métricas de treinamento
     plot_confusion_matrix(y_true, y_pred, f'{OUTPUT_DIR}/confusion_matrix.png')
@@ -255,9 +260,11 @@ def main():
     test_gen.reset()
     Y_pred_fine = model.predict(test_gen, steps=math.ceil(test_gen.n / test_gen.batch_size))
     y_pred_fine = np.argmax(Y_pred_fine, axis=1)
+    
+    #Calcula Kappa e salva no histórico
     kappa_fine = cohen_kappa_score(y_true, y_pred_fine, weights='quadratic')
+    kappa_history.append({"stage": "fine_tuning", "kappa": kappa_fine})
     print(f"Cohen's Kappa after Fine-Tuning: {kappa_fine}")
-    print(history_fine.history)
     
     plot_confusion_matrix(y_true, y_pred_fine, f'{OUTPUT_DIR}/confusion_matrix_fine_tuning.png')
     
@@ -281,6 +288,17 @@ def main():
     
     plt.savefig(f'{OUTPUT_DIR}/fine_tuning_metrics.png')
     plt.close()
+    
+    # Salva o histórico de Kappa
+    df_kappa = pd.DataFrame(kappa_history)
+    df_kappa.to_csv(f'{OUTPUT_DIR}/kappa_history.csv', index=False)
+    print("Histórico de Kappa salvo com sucesso.")
+    
+    # Printa histórico de Kappa
+    print("--------------------------------------")
+    print("Histórico de Kappa:")
+    print(df_kappa)
+    print("--------------------------------------")
 
 if __name__ == '__main__':
     main()
