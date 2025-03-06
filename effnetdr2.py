@@ -23,8 +23,8 @@ CHECKPOINT_PATH = '/app/CNN_Rtinopatia_Diabetica/model_checkpoint.weights.h5'
 SAMPLE_FRAC = 1
 BATCH_SIZE = 16
 TARGET_SIZE = (224, 224)
-EPOCHS = 5
-FINE_TUNE_EPOCHS = 5
+EPOCHS = 10
+FINE_TUNE_EPOCHS = 20
 OUTPUT_DIR = 'img'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
