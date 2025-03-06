@@ -21,12 +21,14 @@ IMG_PATH = "/app/resized_train"
 CSV_PATH = "/app/CNN_Rtinopatia_Diabetica/trainLabels3.csv"  # Certifique-se de ajustar o caminho se necessário
 CHECKPOINT_PATH = '/app/CNN_Rtinopatia_Diabetica/model_checkpoint.weights.h5'
 SAMPLE_FRAC = 1
-BATCH_SIZE = 16
-TARGET_SIZE = (224, 224)
+BATCH_SIZE = 48
+TARGET_SIZE = (512, 512)
 EPOCHS = 10
 FINE_TUNE_EPOCHS = 20
-OUTPUT_DIR = 'img'
+OUTPUT_DIR = 'output'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
 
 def load_and_split_data(csv_path, sample_frac=SAMPLE_FRAC, random_state=43):
     
