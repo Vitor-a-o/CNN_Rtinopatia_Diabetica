@@ -41,6 +41,7 @@ def load_and_split_data(csv_path, sample_frac=SAMPLE_FRAC, random_state=43):
     train_df, val_df = train_test_split(train_df, test_size=0.15/(1-0.15), random_state=random_state)
     
     print("Train:", train_df.shape, "Validation:", val_df.shape, "Test:", test_df.shape)
+    
     return train_df, val_df, test_df
 
 def create_generators(train_df, val_df, test_df, img_path, target_size, batch_size):
@@ -166,7 +167,7 @@ def plot_confusion_matrix(y_true, y_pred, filename):
     plt.savefig(filename)
     plt.close()
 
-def main():
+def main(train_model=True): # Adicionado o argumento train_model
     
     train_df, val_df, test_df = None, None, None
     train_gen, val_gen, test_gen = None, None, None
@@ -198,164 +199,185 @@ def main():
     except Exception as e:
         print(f"[ERRO] Ocorreu um erro ao construir e compilar o modelo: {e}")
         return
+    
+    # Treina o modelo
+    if train_model:
+        # Callbacks para o treinamento inicial
+        checkpoint_callback = ModelCheckpoint(filepath=CHECKPOINT_PATH,
+                                            save_best_only=True,
+                                            monitor='val_loss',
+                                            mode='min',
+                                            save_weights_only=True)
+        early_stopping_callback = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
         
-    # Callbacks para o treinamento inicial
-    checkpoint_callback = ModelCheckpoint(filepath=CHECKPOINT_PATH,
-                                          save_best_only=True,
-                                          monitor='val_loss',
-                                          mode='min',
-                                          save_weights_only=True)
-    early_stopping_callback = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
-    
-    # Aplica pesos de classe para lidar com o desbalanceamento
-    try:
-        class_weights = class_weight.compute_class_weight(
-                                                        class_weight='balanced',
-                                                        classes= np.unique(train_gen.classes),
-                                                        y=train_gen.classes)
-        
-        class_weights_dict = dict(enumerate(class_weights))
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro ao calcular os pesos de classe: {e}")
-        class_weights_dict = None
-    
-    kappa_history = []
-    
-    # Treinamento inicial
-    try:
-        history = model.fit(
-            train_gen,
-            validation_data=val_gen,
-            class_weight=class_weights_dict,
-            epochs=EPOCHS,
-            callbacks=[checkpoint_callback, early_stopping_callback]
-        )
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro durante o treinamento: {e}")
-        return
-    
-    # Avalia o conjunto de teste
-    try:
-        test_loss, test_accuracy = model.evaluate(test_gen)
-        print(f"Test Loss: {test_loss} | Test Accuracy: {test_accuracy}")
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro ao avaliar o conjunto de teste: {e}")
-    
-    # Previsões e métricas
-    y_pred, y_true = None, None
-    
-    try:
-        test_gen.reset()
-        Y_pred = model.predict(test_gen, steps=math.ceil(test_gen.n / test_gen.batch_size))
-        y_pred = np.argmax(Y_pred, axis=1)
-        y_true = test_gen.classes
-        kappa = cohen_kappa_score(y_true, y_pred, weights='quadratic')
-        kappa_history.append({"stage": "initial_training", "kappa": kappa})
-        print(f"Cohen's Kappa: {kappa}")
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro ao fazer previsões: {e}")
-    
-    # Salva os gráficos de matriz de confusão e métricas de treinamento
-    try:
-        if y_true is not None and y_pred is not None:
-            plot_confusion_matrix(y_true, y_pred, f'{OUTPUT_DIR}/confusion_matrix.png')
-        plot_metrics(history, f'{OUTPUT_DIR}/training_metrics.png', title_prefix='Inicial')
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro ao salvar os gráficos: {e}")
-    
-    # Fine-tuning: descongela a base e treina novamente com lr menor
-    try:
-        for layer in base_model.layers:
-            layer.trainable = True
+        # Aplica pesos de classe para lidar com o desbalanceamento
+        try:
+            class_weights = class_weight.compute_class_weight(
+                                                            class_weight='balanced',
+                                                            classes= np.unique(train_gen.classes),
+                                                            y=train_gen.classes)
             
-        model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-                    loss=focal_loss(),
-                    metrics=['accuracy'])
+            class_weights_dict = dict(enumerate(class_weights))
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro ao calcular os pesos de classe: {e}")
+            class_weights_dict = None
         
-        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-7)
+        kappa_history = []
         
-        history_fine = model.fit(
-            train_gen,
-            validation_data=val_gen,
-            class_weight=class_weights_dict,
-            epochs=EPOCHS + FINE_TUNE_EPOCHS,
-            initial_epoch=EPOCHS,
-            callbacks=[checkpoint_callback, reduce_lr]
-        )
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro durante o fine-tuning: {e}")
-        return
-    
-    # Combina os históricos para plotar métricas completas
-    total_epochs = EPOCHS + FINE_TUNE_EPOCHS
-    
-    try:
-        acc = history.history['accuracy'] + history_fine.history['accuracy']
-        val_acc = history.history['val_accuracy'] + history_fine.history['val_accuracy']
-        loss = history.history['loss'] + history_fine.history['loss']
-        val_loss = history.history['val_loss'] + history_fine.history['val_loss']
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro ao combinar os históricos: {e}")
-        acc, val_acc, loss, val_loss = [], [], [], []
-    
-    # Avaliação após o fine-tuning
-    y_pred_fine = None
-    
-    try:
-        test_loss_fine, test_accuracy_fine = model.evaluate(test_gen)
-        print(f"Test Loss after Fine-Tuning: {test_loss_fine} | Test Accuracy after Fine-Tuning: {test_accuracy_fine}")
-        test_gen.reset()
-        Y_pred_fine = model.predict(test_gen, steps=math.ceil(test_gen.n / test_gen.batch_size))
-        y_pred_fine = np.argmax(Y_pred_fine, axis=1)
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro ao avaliar o conjunto de teste após o fine-tuning: {e}")
-    
-    # Métricas após o fine-tuning
-    try:
-        if y_true is not None and y_pred_fine is not None:
-            kappa_fine = cohen_kappa_score(y_true, y_pred_fine, weights='quadratic')
-            kappa_history.append({"stage": "fine_tuning", "kappa": kappa_fine})
-            print(f"Cohen's Kappa after Fine-Tuning: {kappa_fine}")
-            plot_confusion_matrix(y_true, y_pred_fine, f'{OUTPUT_DIR}/confusion_matrix_fine_tuning.png')
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro ao calcular as métricas após o fine-tuning: {e}")
-    
-    
-    # Plota os gráficos combinados de loss e acurácia
-    try:
-        plt.figure(figsize=(12, 5))
-        plt.subplot(1, 2, 1)
-        plt.plot(range(len(loss)), loss, label='Train Loss')
-        plt.plot(range(len(acc)), acc, label='Train Accuracy')
-        plt.title('Treinamento Completo')
-        plt.xlabel('Épocas')
-        plt.ylabel('Loss / Accuracy')
-        plt.legend()
+        # Treinamento inicial
+        try:
+            history = model.fit(
+                train_gen,
+                validation_data=val_gen,
+                class_weight=class_weights_dict,
+                epochs=EPOCHS,
+                callbacks=[checkpoint_callback, early_stopping_callback]
+            )
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro durante o treinamento: {e}")
+            return
         
-        plt.subplot(1, 2, 2)
-        plt.plot(range(len(val_loss)), val_loss, label='Validation Loss')
-        plt.plot(range(len(val_acc)), val_acc, label='Validation Accuracy')
-        plt.title('Validação Completa')
-        plt.xlabel('Épocas')
-        plt.ylabel('Loss / Accuracy')
-        plt.legend()
+        # Avalia o conjunto de teste
+        try:
+            test_loss, test_accuracy = model.evaluate(test_gen)
+            print(f"Test Loss: {test_loss} | Test Accuracy: {test_accuracy}")
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro ao avaliar o conjunto de teste: {e}")
         
-        plt.savefig(f'{OUTPUT_DIR}/fine_tuning_metrics.png')
-        plt.close()
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro ao salvar os gráficos de métricas após o fine-tuning: {e}")
-    
-    # Salva o histórico de Kappa
-    try:
-        df_kappa = pd.DataFrame(kappa_history)
-        df_kappa.to_csv(f'{OUTPUT_DIR}/kappa_history.csv', index=False)
-        print("Histórico de Kappa salvo com sucesso.")
-        print("--------------------------------------")
-        print("Histórico de Kappa:")
-        print(df_kappa)
-        print("--------------------------------------")
-    except Exception as e:
-        print(f"[ERRO] Ocorreu um erro ao salvar o histórico de Kappa: {e}")
+        # Previsões e métricas
+        y_pred, y_true = None, None
+        
+        try:
+            test_gen.reset()
+            Y_pred = model.predict(test_gen, steps=math.ceil(test_gen.n / test_gen.batch_size))
+            y_pred = np.argmax(Y_pred, axis=1)
+            y_true = test_gen.classes
+            kappa = cohen_kappa_score(y_true, y_pred, weights='quadratic')
+            kappa_history.append({"stage": "initial_training", "kappa": kappa})
+            print(f"Cohen's Kappa: {kappa}")
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro ao fazer previsões: {e}")
+        
+        # Salva os gráficos de matriz de confusão e métricas de treinamento
+        try:
+            if y_true is not None and y_pred is not None:
+                plot_confusion_matrix(y_true, y_pred, f'{OUTPUT_DIR}/confusion_matrix.png')
+            plot_metrics(history, f'{OUTPUT_DIR}/training_metrics.png', title_prefix='Inicial')
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro ao salvar os gráficos: {e}")
+        
+        # Fine-tuning: descongela a base e treina novamente com lr menor
+        try:
+            for layer in base_model.layers:
+                layer.trainable = True
+                
+            model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+                        loss=focal_loss(),
+                        metrics=['accuracy'])
+            
+            reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-7)
+            
+            history_fine = model.fit(
+                train_gen,
+                validation_data=val_gen,
+                class_weight=class_weights_dict,
+                epochs=EPOCHS + FINE_TUNE_EPOCHS,
+                initial_epoch=EPOCHS,
+                callbacks=[checkpoint_callback, reduce_lr]
+            )
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro durante o fine-tuning: {e}")
+            return
+        
+        # Combina os históricos para plotar métricas completas
+        total_epochs = EPOCHS + FINE_TUNE_EPOCHS
+        
+        try:
+            acc = history.history['accuracy'] + history_fine.history['accuracy']
+            val_acc = history.history['val_accuracy'] + history_fine.history['val_accuracy']
+            loss = history.history['loss'] + history_fine.history['loss']
+            val_loss = history.history['val_loss'] + history_fine.history['val_loss']
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro ao combinar os históricos: {e}")
+            acc, val_acc, loss, val_loss = [], [], [], []
+        
+        # Avaliação após o fine-tuning
+        y_pred_fine = None
+        
+        try:
+            test_loss_fine, test_accuracy_fine = model.evaluate(test_gen)
+            print(f"Test Loss after Fine-Tuning: {test_loss_fine} | Test Accuracy after Fine-Tuning: {test_accuracy_fine}")
+            test_gen.reset()
+            Y_pred_fine = model.predict(test_gen, steps=math.ceil(test_gen.n / test_gen.batch_size))
+            y_pred_fine = np.argmax(Y_pred_fine, axis=1)
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro ao avaliar o conjunto de teste após o fine-tuning: {e}")
+        
+        # Métricas após o fine-tuning
+        try:
+            if y_true is not None and y_pred_fine is not None:
+                kappa_fine = cohen_kappa_score(y_true, y_pred_fine, weights='quadratic')
+                kappa_history.append({"stage": "fine_tuning", "kappa": kappa_fine})
+                print(f"Cohen's Kappa after Fine-Tuning: {kappa_fine}")
+                plot_confusion_matrix(y_true, y_pred_fine, f'{OUTPUT_DIR}/confusion_matrix_fine_tuning.png')
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro ao calcular as métricas após o fine-tuning: {e}")
+        
+        
+        # Plota os gráficos combinados de loss e acurácia
+        try:
+            plt.figure(figsize=(12, 5))
+            plt.subplot(1, 2, 1)
+            plt.plot(range(len(loss)), loss, label='Train Loss')
+            plt.plot(range(len(acc)), acc, label='Train Accuracy')
+            plt.title('Treinamento Completo')
+            plt.xlabel('Épocas')
+            plt.ylabel('Loss / Accuracy')
+            plt.legend()
+            
+            plt.subplot(1, 2, 2)
+            plt.plot(range(len(val_loss)), val_loss, label='Validation Loss')
+            plt.plot(range(len(val_acc)), val_acc, label='Validation Accuracy')
+            plt.title('Validação Completa')
+            plt.xlabel('Épocas')
+            plt.ylabel('Loss / Accuracy')
+            plt.legend()
+            
+            plt.savefig(f'{OUTPUT_DIR}/fine_tuning_metrics.png')
+            plt.close()
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro ao salvar os gráficos de métricas após o fine-tuning: {e}")
+        
+        # Salva o histórico de Kappa
+        try:
+            df_kappa = pd.DataFrame(kappa_history)
+            df_kappa.to_csv(f'{OUTPUT_DIR}/kappa_history.csv', index=False)
+            print("Histórico de Kappa salvo com sucesso.")
+            print("--------------------------------------")
+            print("Histórico de Kappa:")
+            print(df_kappa)
+            print("--------------------------------------")
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro ao salvar o histórico de Kappa: {e}")
+    else:
+        # Carrega o modelo treinado e avalia o conjunto de teste
+        try:
+            Y_pred_test = model.predict(test_gen, steps=math.ceil(test_gen.n / test_gen.batch_size))
+            y_pred_test = np.argmax(Y_pred_test, axis=1)
+            y_true_test = test_gen.classes
+            kappa_test = cohen_kappa_score(y_true_test, y_pred_test, weights='quadratic')
+            print(f"Cohen's Kappa: {kappa_test}")
+            plot_confusion_matrix(y_true_test, y_pred_test, f'{OUTPUT_DIR}/confusion_matrix_test.png')
+        except Exception as e:
+            print(f"[ERRO] Ocorreu um erro ao avaliar o conjunto de teste: {e}")
+        
+        
 
 if __name__ == '__main__':
-    main()
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == 'test':
+        main(train_model=False)
+    else:
+        main()
+        
