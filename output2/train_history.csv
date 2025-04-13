@@ -1,0 +1,3 @@
+Model,Epochs,Fine_Tuning_Epochs,Initial_Kappa,Fine_Tuning_Kappa
+EfficientNetB3,10,20,-0.0009,-0.0243
+InceptionV3,10,20,0.0156,0.0726
