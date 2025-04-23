@@ -45,13 +45,13 @@ print("GPUs visíveis:", tf.config.list_physical_devices('GPU'))
 IMG_PATH = "/app/resized_train"
 #CSV_PATH = "/home/vitoroliveira/CNN_Rtinopatia_Diabetica/trainLabels3.csv"  # Certifique-se de ajustar o caminho se necessário
 CSV_PATH = "/app/CNN_Rtinopatia_Diabetica/trainLabels3.csv"
-SAMPLE_FRAC = 1
+SAMPLE_FRAC = 0.1
 BATCH_SIZE = 48
-EPOCHS = 10
-FINE_TUNE_EPOCHS = 20
+EPOCHS = 1
+FINE_TUNE_EPOCHS = 1
 OUTPUT_DIR = 'output2'
 EFF_WEIGHTS_PATH = os.path.join(OUTPUT_DIR, "efficientnetb3_weights_only.h5")
-INC_WEIGHTS_PATH = os.path.join(OUTPUT_DIR, "inceptionv3_weights_only.h5")
+DENSE_WEIGHTS_PATH = os.path.join(OUTPUT_DIR, "dense169_weights_only.h5")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # %%
@@ -193,17 +193,17 @@ def build_efficientnet_b3():
     x_b3 = Dropout(0.2)(x_b3)
 
     predictions_b3 = Dense(5, activation='softmax')(x_b3)
-    model_b3_ = Model(inputs=base_model_b3.input, outputs=predictions_b3)
+    model_b3 = Model(inputs=base_model_b3.input, outputs=predictions_b3)
 
     for layer in base_model_b3.layers:
         layer.trainable = False
 
-    model_b3_.compile(
+    model_b3.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
         loss=focal_loss(),
         metrics=['accuracy']
     )
-    return model_b3_
+    return model_b3
 
 
 def build_inception_v3():
@@ -298,6 +298,9 @@ def evaluate_and_plot_confusion_matrix(model, valid_generator, model_name):
 # Treinamento inicial do modelo EfficientNetB3
 # =============================================================================
 
+model_b3 = build_efficientnet_b3()
+model_inc = build_inception_v3()
+
 # Carregando os pesos do checkpoint se existir
 if os.path.exists(EFF_WEIGHTS_PATH):
     model_b3.load_weights(EFF_WEIGHTS_PATH)
@@ -306,7 +309,7 @@ else:
     print("Checkpoint do EfficientNetB3 não encontrado. Treinando do zero.")
     
 # Definindo callbacks
-checkpoint_eff = ModelCheckpoint(EFF_WEIGHTS_PATH), monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
+checkpoint_eff = ModelCheckpoint(EFF_WEIGHTS_PATH, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
 early_stopping = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
 reduce_lr_eff = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-7, verbose=1)
 
@@ -338,13 +341,13 @@ kappa_b3 = evaluate_and_plot_confusion_matrix(model_b3, valid_generator_eff, 'Ef
 # %%
 # Carregando os pesos do checkpoint se existir
 if os.path.exists(INC_WEIGHTS_PATH):
-    model_inc.load_weights(INC_WEIGHTS_PATH):)
+    model_inc.load_weights(INC_WEIGHTS_PATH)
     print("Pesos do InceptionV3 carregados do checkpoint.")
 else:
     print("Checkpoint do InceptionV3 não encontrado. Treinando do zero.")
 
 # Definindo callbacks
-checkpoint_inc = ModelCheckpoint(INC_WEIGHTS_PATH):, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
+checkpoint_inc = ModelCheckpoint(INC_WEIGHTS_PATH, monitor='val_loss', save_best_only=True, verbose=1, mode='min', save_weights_only=True)
 early_stopping = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
 reduce_lr_inc = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-7, verbose=1)
 
@@ -448,15 +451,31 @@ results = {
     'Epochs': [EPOCHS, EPOCHS],
     'Fine_Tuning_Epochs': [FINE_TUNE_EPOCHS, FINE_TUNE_EPOCHS],
     'Initial_Kappa': [kappa_b3, kappa_inc],
-    'Fine_Tuning_Kappa': [kappa_b3_fine, kappa_inc_fine]
+    'Fine_Tuning_Kappa': [kappa_b3_fine, kappa_inc_fine],
 }
 
-path = os.path.join(OUTPUT_DIR, 'train_history.csv')
-if os.path.exists(path) and os.path.getsize(path) > 0:
-    results_df = pd.read_csv(path)
-    results_df = pd.concat([results_df, pd.DataFrame(results)], ignore_index=True)
-else:
-    results_df = pd.DataFrame(results)
-results_df.to_csv(path, index=False)
+# Caminho do arquivo
+path = os.path.join(OUTPUT_DIR, "train_history.csv")
 
+# Garante que o diretório existe
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Converte para DataFrame
+df_out = pd.DataFrame(results)
+
+# O arquivo já existe e contém dados?
+file_has_data = os.path.exists(path) and os.path.getsize(path) > 0
+
+# Grava (append ou write)
+df_out.to_csv(
+    path,
+    mode="a" if file_has_data else "w",
+    header=not file_has_data,
+    index=False,
+)
+
+# Validação rápida
+print(f"Histórico salvo em: {path}")
+print("Últimas linhas gravadas:")
+print(pd.read_csv(path).tail())
 # %%
