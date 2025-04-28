@@ -1,0 +1,95 @@
+2025-04-28 14:48:17,636 [INFO] Logger initialized. Output directory: output2
+2025-04-28 14:48:17,638 [INFO] Cleared previous Keras session
+2025-04-28 14:48:17,667 [INFO] GPUs found: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU'), PhysicalDevice(name='/physical_device:GPU:1', device_type='GPU')]
+2025-04-28 14:48:17,667 [INFO] Enabled memory growth for GPUs
+2025-04-28 14:48:17,667 [INFO] Starting DATA PREPARATION stage
+2025-04-28 14:48:17,704 [INFO] CSV loaded: 35107 rows
+2025-04-28 14:48:17,916 [INFO] Filtered non‑existing files: 35107 -> 35107
+2025-04-28 14:48:18,007 [INFO] Train size: 27146, Valid size: 9589
+2025-04-28 14:48:18,007 [INFO] Creating DATA GENERATORS
+2025-04-28 14:48:18,729 [INFO] Generators instantiated successfully
+2025-04-28 14:48:18,730 [INFO] Building model architectures
+2025-04-28 14:48:18,730 [INFO] Building EfficientNetB3 model
+2025-04-28 14:48:21,703 [INFO] Building DenseNet169 model
+2025-04-28 14:48:25,435 [INFO] Loading EfficientNetB3 weights from output2/efficientnetb3_weights_only.h5
+2025-04-28 14:48:25,840 [INFO] Loading DenseNet169 weights from output2/densenet169_weights_only.h5
+2025-04-28 14:48:26,410 [INFO] Beginning initial training — saving best weights to output2/efficientnetb3_weights_only.h5
+2025-04-28 14:48:26,419 [INFO] Class weights: [0.27666123 2.63937773 1.29112961 7.81179856 9.60920354]
+2025-04-28 14:48:29,672 [INFO] Training started
+2025-04-28 14:48:29,733 [INFO] Epoch 1 start
+2025-04-28 15:21:25,966 [INFO] Epoch 1 end — loss: 0.1976, val_loss: 0.1633, acc: 0.5161, val_acc: 0.3256
+2025-04-28 15:21:25,996 [INFO] Epoch 2 start
+2025-04-28 15:38:35,560 [INFO] Epoch 2 end — loss: 0.1783, val_loss: 0.1737, acc: 0.4132, val_acc: 0.2834
+2025-04-28 15:38:35,608 [INFO] Epoch 3 start
+2025-04-28 15:55:42,038 [INFO] Epoch 3 end — loss: 0.1767, val_loss: 0.1733, acc: 0.4096, val_acc: 0.2976
+2025-04-28 15:55:42,086 [INFO] Epoch 4 start
+2025-04-28 16:12:53,194 [INFO] Epoch 4 end — loss: 0.1748, val_loss: 0.1742, acc: 0.4208, val_acc: 0.2864
+2025-04-28 16:12:53,197 [INFO] Training finished
+2025-04-28 16:12:53,564 [INFO] Saved metric plot to output2/efficientnetb3_metrics.png
+2025-04-28 16:12:53,564 [INFO] Evaluating EfficientNetB3
+2025-04-28 16:14:08,954 [INFO] EfficientNetB3 -> Val Loss: 0.1633 | Val Acc: 0.3256
+2025-04-28 16:17:29,654 [INFO] EfficientNetB3 -> Cohen Kappa: 0.3609
+2025-04-28 16:17:29,818 [INFO] Saved confusion matrix to output2/EfficientNetB3_cm.png
+2025-04-28 16:17:29,819 [INFO] Beginning initial training — saving best weights to output2/densenet169_weights_only.h5
+2025-04-28 16:17:29,827 [INFO] Class weights: [0.27666123 2.63937773 1.29112961 7.81179856 9.60920354]
+2025-04-28 16:17:30,941 [INFO] Training started
+2025-04-28 16:17:31,000 [INFO] Epoch 1 start
+2025-04-28 16:27:30,522 [INFO] Epoch 1 end — loss: 0.2109, val_loss: 0.1914, acc: 0.3721, val_acc: 0.4067
+2025-04-28 16:27:30,553 [INFO] Epoch 2 start
+2025-04-28 16:37:23,992 [INFO] Epoch 2 end — loss: 0.2052, val_loss: 0.1955, acc: 0.3698, val_acc: 0.3554
+2025-04-28 16:37:24,040 [INFO] Epoch 3 start
+2025-04-28 16:47:16,750 [INFO] Epoch 3 end — loss: 0.2027, val_loss: 0.1974, acc: 0.3704, val_acc: 0.3076
+2025-04-28 16:47:16,801 [INFO] Epoch 4 start
+2025-04-28 16:57:13,647 [INFO] Epoch 4 end — loss: 0.1962, val_loss: 0.1792, acc: 0.3678, val_acc: 0.4024
+2025-04-28 16:57:13,681 [INFO] Epoch 5 start
+2025-04-28 17:07:06,854 [INFO] Epoch 5 end — loss: 0.1974, val_loss: 0.1841, acc: 0.3735, val_acc: 0.3840
+2025-04-28 17:07:06,865 [INFO] Training finished
+2025-04-28 17:07:07,217 [INFO] Saved metric plot to output2/densenet169_metrics.png
+2025-04-28 17:07:07,217 [INFO] Evaluating DenseNet169
+2025-04-28 17:07:45,225 [INFO] DenseNet169 -> Val Loss: 0.1841 | Val Acc: 0.3840
+2025-04-28 17:10:29,015 [INFO] DenseNet169 -> Cohen Kappa: 0.3225
+2025-04-28 17:10:29,172 [INFO] Saved confusion matrix to output2/DenseNet169_cm.png
+2025-04-28 17:10:29,172 [INFO] Starting fine‑tuning: unfreezing last 20 layers
+2025-04-28 17:10:31,013 [INFO] Training started
+2025-04-28 17:10:31,041 [INFO] Epoch 6 start
+2025-04-28 17:27:54,375 [INFO] Epoch 6 end — loss: 0.0997, val_loss: 0.0984, acc: 0.7253, val_acc: 0.7227
+2025-04-28 17:27:54,408 [INFO] Epoch 7 start
+2025-04-28 17:45:05,616 [INFO] Epoch 7 end — loss: 0.0937, val_loss: 0.0978, acc: 0.7368, val_acc: 0.7230
+2025-04-28 17:45:05,654 [INFO] Epoch 8 start
+2025-04-28 18:01:54,999 [INFO] Epoch 8 end — loss: 0.0930, val_loss: 0.0974, acc: 0.7391, val_acc: 0.7237
+2025-04-28 18:01:55,032 [INFO] Epoch 9 start
+2025-04-28 18:19:06,488 [INFO] Epoch 9 end — loss: 0.0925, val_loss: 0.0973, acc: 0.7409, val_acc: 0.7251
+2025-04-28 18:19:06,521 [INFO] Epoch 10 start
+2025-04-28 18:36:10,106 [INFO] Epoch 10 end — loss: 0.0918, val_loss: 0.0965, acc: 0.7402, val_acc: 0.7255
+2025-04-28 18:36:10,115 [INFO] Training finished
+2025-04-28 18:36:10,495 [INFO] Saved metric plot to output2/efficientnetb3_finetune_metrics.png
+2025-04-28 18:36:10,495 [INFO] Evaluating EfficientNetB3_FT
+2025-04-28 18:37:25,831 [INFO] EfficientNetB3_FT -> Val Loss: 0.0965 | Val Acc: 0.7255
+2025-04-28 18:41:24,579 [INFO] EfficientNetB3_FT -> Cohen Kappa: 0.3930
+2025-04-28 18:41:24,737 [INFO] Saved confusion matrix to output2/EfficientNetB3_FT_cm.png
+2025-04-28 18:41:24,737 [INFO] Starting fine‑tuning: unfreezing last 20 layers
+2025-04-28 18:41:25,837 [INFO] Training started
+2025-04-28 18:41:25,866 [INFO] Epoch 6 start
+2025-04-28 18:51:30,140 [INFO] Epoch 6 end — loss: 0.1168, val_loss: 0.1033, acc: 0.6857, val_acc: 0.7140
+2025-04-28 18:51:30,178 [INFO] Epoch 7 start
+2025-04-28 19:01:21,783 [INFO] Epoch 7 end — loss: 0.1040, val_loss: 0.1022, acc: 0.7177, val_acc: 0.7122
+2025-04-28 19:01:21,823 [INFO] Epoch 8 start
+2025-04-28 19:11:12,044 [INFO] Epoch 8 end — loss: 0.1030, val_loss: 0.1022, acc: 0.7170, val_acc: 0.7151
+2025-04-28 19:11:12,079 [INFO] Epoch 9 start
+2025-04-28 19:21:03,154 [INFO] Epoch 9 end — loss: 0.1007, val_loss: 0.1016, acc: 0.7226, val_acc: 0.7145
+2025-04-28 19:21:03,203 [INFO] Epoch 10 start
+2025-04-28 19:30:52,773 [INFO] Epoch 10 end — loss: 0.1004, val_loss: 0.1023, acc: 0.7216, val_acc: 0.7180
+2025-04-28 19:30:52,782 [INFO] Training finished
+2025-04-28 19:30:53,153 [INFO] Saved metric plot to output2/densenet169_finetune_metrics.png
+2025-04-28 19:30:53,153 [INFO] Evaluating DenseNet169_FT
+2025-04-28 19:31:31,293 [INFO] DenseNet169_FT -> Val Loss: 0.1023 | Val Acc: 0.7180
+2025-04-28 19:34:53,258 [INFO] DenseNet169_FT -> Cohen Kappa: 0.3491
+2025-04-28 19:34:53,415 [INFO] Saved confusion matrix to output2/DenseNet169_FT_cm.png
+2025-04-28 19:34:53,416 [INFO] 
+======== FINAL RESULTS ========
+2025-04-28 19:34:53,416 [INFO] EfficientNetB3  (init): 0.3609 | FT: 0.3930
+2025-04-28 19:34:53,416 [INFO] DenseNet169     (init): 0.3225 | FT: 0.3491
+2025-04-28 19:34:53,416 [INFO] ===================================
+
+2025-04-28 19:34:53,418 [INFO] Training history saved to output2/train_history.csv
+2025-04-28 19:34:53,418 [INFO] Execution finished — see output2/train_debug.log for detailed logs

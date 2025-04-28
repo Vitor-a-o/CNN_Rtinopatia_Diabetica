@@ -1,415 +1,359 @@
 import os
+import sys
 import math
+import logging
+import gc
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
+from tensorflow.keras import mixed_precision
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.applications import EfficientNetB3, DenseNet169
 from tensorflow.keras.applications.efficientnet import preprocess_input as preprocess_eff
-from tensorflow.keras.applications.densenet import preprocess_input as preprocess_dn
+from tensorflow.keras.applications.densenet import preprocess_input as preprocess_dense
 from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
 from tensorflow.keras.models import Model
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
-
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, cohen_kappa_score, classification_report, ConfusionMatrixDisplay
+from sklearn.metrics import confusion_matrix, cohen_kappa_score, ConfusionMatrixDisplay
 from sklearn.utils import class_weight
 
-# Libera a sessão atual
-K.clear_session()
+# -------------------------------------------------------------
+# LOGGER CONFIGURATION
+# -------------------------------------------------------------
+OUTPUT_DIR = 'output2'
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Evita alocação total da memória da GPU
+log_path = os.path.join(OUTPUT_DIR, 'train_debug.log')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler(log_path, mode='w'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+logger.info('Logger initialized. Output directory: %s', OUTPUT_DIR)
+
+# -------------------------------------------------------------
+# GPU CONFIGURATION
+# -------------------------------------------------------------
+K.clear_session()
+logger.info('Cleared previous Keras session')
+
+#mixed_precision.set_global_policy('mixed_float16')
+#logger.info('Mixed precision policy set to float16')
+
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
+    logger.info('GPUs found: %s', gpus)
     try:
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
-        logical_gpus = tf.config.list_logical_devices('GPU')
-        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+        logger.info('Enabled memory growth for GPUs')
     except RuntimeError as e:
-        print(e)
+        logger.exception('RuntimeError during GPU config: %s', e)
+else:
+    logger.warning('No GPU detected — training will use CPU.')
 
-print("GPUs visíveis:", tf.config.list_physical_devices('GPU'))
-
-# Configurações e caminhos
-IMG_PATH = "/app/resized_train"
-CSV_PATH = "/app/CNN_Rtinopatia_Diabetica/trainLabels3.csv"
+# -------------------------------------------------------------
+# PATHS & HYPERPARAMETERS
+# -------------------------------------------------------------
+IMG_PATH = '/app/resized_train'
+CSV_PATH = '/app/CNN_Rtinopatia_Diabetica/trainLabels3.csv'
 SAMPLE_FRAC = 1
 BATCH_SIZE = 48
-EPOCHS = 10
-FINE_TUNE_EPOCHS = 10
-OUTPUT_DIR = 'output2'
-EFF_WEIGHTS_PATH = os.path.join(OUTPUT_DIR, "efficientnetb3_weights_only.h5")
-DN_WEIGHTS_PATH = os.path.join(OUTPUT_DIR, "densenet169_weights_only.h5")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+EPOCHS = 5
+FINE_TUNE_EPOCHS = 5
+EFF_WEIGHTS_PATH = os.path.join(OUTPUT_DIR, 'efficientnetb3_weights_only.h5')
+DENSE_WEIGHTS_PATH = os.path.join(OUTPUT_DIR, 'densenet169_weights_only.h5')
 
-# Carrega CSV e prepara DataFrame
+# -------------------------------------------------------------
+# DATA PREPARATION
+# -------------------------------------------------------------
+logger.info('Starting DATA PREPARATION stage')
 df = pd.read_csv(CSV_PATH)
+logger.info('CSV loaded: %d rows', len(df))
+
 df = df.sample(frac=SAMPLE_FRAC, random_state=42)
 df['Patient_ID'] = df['image'].apply(lambda x: x.split('_')[0])
 df['path'] = df['image'].apply(lambda x: os.path.join(IMG_PATH, x))
-df['exists'] = df['path'].map(lambda x: os.path.exists(x))
 
-print(df['exists'].sum(), 'imagens encontradas de', len(df), 'no total')
+before_filter = len(df)
+df = df[df['path'].apply(os.path.exists)]
+logger.info('Filtered non‑existing files: %d -> %d', before_filter, len(df))
+
 df['eye'] = df['image'].apply(lambda x: 1 if x.split('_')[-1].split('.')[0] == 'left' else 0)
 
-from keras.utils import to_categorical
-df['level_cat'] = df['level'].map(lambda x: to_categorical(x, 1 + df['level'].max()))
-
-df.dropna(inplace=True)
-df = df[df['exists']]
-df.sample(5)
-
-df[['level', 'eye']].hist(figsize=(10, 5))
-
-# Divide em treino/validação
 rr_df = df[['Patient_ID', 'level']].drop_duplicates()
 train_ids, valid_ids = train_test_split(rr_df['Patient_ID'], test_size=0.25, random_state=42, stratify=rr_df['level'])
+
 train_df = df[df['Patient_ID'].isin(train_ids)]
 valid_df = df[df['Patient_ID'].isin(valid_ids)]
-print('Train:', len(train_df), 'Valid:', len(valid_df))
-
 train_df['level'] = train_df['level'].astype(str)
 valid_df['level'] = valid_df['level'].astype(str)
+logger.info('Train size: %d, Valid size: %d', len(train_df), len(valid_df))
 
-# --------------------------------------------------------------------------------
-# DataGenerators para o EfficientNetB3
-# --------------------------------------------------------------------------------
-train_datagen_eff = ImageDataGenerator(
-    preprocessing_function=preprocess_eff,
-    rescale=1./255,
-    rotation_range=20,
-    width_shift_range=0.2,
-    height_shift_range=0.2,
-    shear_range=0.2,
-    zoom_range=0.2,
-    horizontal_flip=True,
-    fill_mode='nearest',
-)
+# -------------------------------------------------------------
+# DATA GENERATORS
+# -------------------------------------------------------------
+logger.info('Creating DATA GENERATORS')
 
-valid_datagen_eff = ImageDataGenerator(
-    preprocessing_function=preprocess_eff,
-    rescale=1./255
-)
+def create_datagen(preprocess_func, augment=True):
+    if augment:
+        return ImageDataGenerator(
+            preprocessing_function=preprocess_func,
+            rotation_range=20,
+            width_shift_range=0.2,
+            height_shift_range=0.2,
+            shear_range=0.2,
+            zoom_range=0.2,
+            horizontal_flip=True,
+            fill_mode='nearest'
+        )
+    else:
+        return ImageDataGenerator(preprocessing_function=preprocess_func)
 
-train_generator_eff = train_datagen_eff.flow_from_dataframe(
-    dataframe=train_df,
-    x_col='path',
-    y_col='level',
-    target_size=(300, 300),
-    batch_size=BATCH_SIZE,
-    class_mode='categorical',
-    shuffle=True,
-)
+train_gen_eff = create_datagen(preprocess_eff, augment=True).flow_from_dataframe(
+    train_df, x_col='path', y_col='level', target_size=(300, 300),
+    batch_size=BATCH_SIZE, class_mode='categorical', shuffle=True)
 
-valid_generator_eff = valid_datagen_eff.flow_from_dataframe(
-    dataframe=valid_df,
-    x_col='path',
-    y_col='level',
-    target_size=(300, 300),
-    batch_size=BATCH_SIZE,
-    class_mode='categorical',
-    shuffle=False,
-)
+valid_gen_eff = create_datagen(preprocess_eff, augment=False).flow_from_dataframe(
+    valid_df, x_col='path', y_col='level', target_size=(300, 300),
+    batch_size=BATCH_SIZE, class_mode='categorical', shuffle=False)
 
-# --------------------------------------------------------------------------------
-# DataGenerators para o DenseNet169 (substituindo InceptionV3)
-# Ajustamos o target_size para 224 x 224 (padrão DenseNet).
-# --------------------------------------------------------------------------------
-train_datagen_dn = ImageDataGenerator(
-    preprocessing_function=preprocess_dn,
-    rescale=1./255,
-    rotation_range=20,
-    width_shift_range=0.2,
-    height_shift_range=0.2,
-    shear_range=0.2,
-    zoom_range=0.2,
-    horizontal_flip=True,
-    fill_mode='nearest',
-)
+train_gen_dense = create_datagen(preprocess_dense, augment=True).flow_from_dataframe(
+    train_df, x_col='path', y_col='level', target_size=(224, 224),
+    batch_size=BATCH_SIZE, class_mode='categorical', shuffle=True)
 
-valid_datagen_dn = ImageDataGenerator(
-    preprocessing_function=preprocess_dn,
-    rescale=1./255
-)
+valid_gen_dense = create_datagen(preprocess_dense, augment=False).flow_from_dataframe(
+    valid_df, x_col='path', y_col='level', target_size=(224, 224),
+    batch_size=BATCH_SIZE, class_mode='categorical', shuffle=False)
 
-train_generator_dn = train_datagen_dn.flow_from_dataframe(
-    dataframe=train_df,
-    x_col='path',
-    y_col='level',
-    target_size=(224, 224),
-    batch_size=BATCH_SIZE,
-    class_mode='categorical',
-    shuffle=True,
-)
+logger.info('Generators instantiated successfully')
 
-valid_generator_dn = valid_datagen_dn.flow_from_dataframe(
-    dataframe=valid_df,
-    x_col='path',
-    y_col='level',
-    target_size=(224, 224),
-    batch_size=BATCH_SIZE,
-    class_mode='categorical',
-    shuffle=False,
-)
+# -------------------------------------------------------------
+# LOSS FUNCTION
+# -------------------------------------------------------------
 
-# Função de perda focal_loss
 def focal_loss(gamma=2.0, alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):
         eps = 1e-7
         y_pred = K.clip(y_pred, eps, 1 - eps)
         cross_entropy = -y_true * K.log(y_pred)
-        loss = alpha * K.pow((1 - y_pred), gamma) * cross_entropy
+        loss = alpha * K.pow(1 - y_pred, gamma) * cross_entropy
         return K.sum(loss, axis=1)
     return focal_loss_fixed
 
-# =============================================================================
-# Função para construir o modelo do EfficientNetB3
-# =============================================================================
+# -------------------------------------------------------------
+# MODEL BUILDERS
+# -------------------------------------------------------------
+logger.info('Building model architectures')
+
 def build_efficientnet_b3():
-    input_b3 = tf.keras.Input(shape=(300, 300, 3))
-    base_model_b3 = EfficientNetB3(include_top=False, weights='imagenet', input_tensor=input_b3)
-
-    x_b3 = base_model_b3.output
-    x_b3 = GlobalAveragePooling2D()(x_b3)
-    x_b3 = Dropout(0.2)(x_b3)
-
-    predictions_b3 = Dense(5, activation='softmax')(x_b3)
-    model_b3_ = Model(inputs=base_model_b3.input, outputs=predictions_b3)
-
-    for layer in base_model_b3.layers:
+    inp = tf.keras.Input(shape=(300, 300, 3))
+    base = EfficientNetB3(include_top=False, weights='imagenet', input_tensor=inp)
+    x = GlobalAveragePooling2D()(base.output)
+    x = Dropout(0.2)(x)
+    out = Dense(5, activation='softmax')(x)
+    model = Model(inputs=base.input, outputs=out)
+    for layer in base.layers:
         layer.trainable = False
+    model.compile(optimizer=tf.keras.optimizers.Adam(1e-4), loss=focal_loss(), metrics=['accuracy'])
+    return model
 
-    model_b3_.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
-        loss=focal_loss(),
-        metrics=['accuracy']
-    )
-    return model_b3_
 
-# =============================================================================
-# Função para construir o modelo do DenseNet169 (substituindo InceptionV3)
-# =============================================================================
 def build_densenet169():
-    input_dn = tf.keras.Input(shape=(224, 224, 3))
-    base_model_dn = DenseNet169(include_top=False, weights='imagenet', input_tensor=input_dn)
-
-    x_dn = base_model_dn.output
-    x_dn = GlobalAveragePooling2D()(x_dn)
-    x_dn = Dropout(0.2)(x_dn)
-
-    predictions_dn = Dense(5, activation='softmax')(x_dn)
-    model_dn_ = Model(inputs=base_model_dn.input, outputs=predictions_dn)
-
-    for layer in base_model_dn.layers:
+    inp = tf.keras.Input(shape=(224, 224, 3))
+    base = DenseNet169(include_top=False, weights='imagenet', input_tensor=inp)
+    x = GlobalAveragePooling2D()(base.output)
+    x = Dropout(0.2)(x)
+    out = Dense(5, activation='softmax')(x)
+    model = Model(inputs=base.input, outputs=out)
+    for layer in base.layers:
         layer.trainable = False
+    model.compile(optimizer=tf.keras.optimizers.Adam(1e-4), loss=focal_loss(), metrics=['accuracy'])
+    return model
 
-    model_dn_.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
-        loss=focal_loss(),
-        metrics=['accuracy']
-    )
-    return model_dn_
+# -------------------------------------------------------------
+# CUSTOM CALLBACK FOR DETAILED LOGGING
+# -------------------------------------------------------------
+class LogCallback(tf.keras.callbacks.Callback):
+    def on_train_begin(self, logs=None):
+        logger.info('Training started')
 
-# =============================================================================
-# Funções para plot e avaliação
-# =============================================================================
-def plot_metrics(history, filename_prefix):
+    def on_epoch_begin(self, epoch, logs=None):
+        logger.info('Epoch %d start', epoch + 1)
+
+    def on_epoch_end(self, epoch, logs=None):
+        logger.info('Epoch %d end — loss: %.4f, val_loss: %.4f, acc: %.4f, val_acc: %.4f',
+                    epoch + 1,
+                    logs.get('loss', float('nan')),
+                    logs.get('val_loss', float('nan')),
+                    logs.get('accuracy', float('nan')),
+                    logs.get('val_accuracy', float('nan')))
+
+    def on_train_end(self, logs=None):
+        logger.info('Training finished')
+
+# -------------------------------------------------------------
+# TRAINING UTILITIES
+# -------------------------------------------------------------
+
+def plot_metrics(history, prefix):
     plt.figure(figsize=(12, 5))
-    # Loss
     plt.subplot(1, 2, 1)
-    plt.plot(history.history['loss'], label='Train Loss')
-    plt.plot(history.history['val_loss'], label='Val Loss')
+    plt.plot(history.history['loss'], label='Train')
+    plt.plot(history.history['val_loss'], label='Val')
     plt.title('Loss')
-    plt.xlabel('Épocas')
-    plt.ylabel('Perda')
     plt.legend()
-
-    # Accuracy
     plt.subplot(1, 2, 2)
-    plt.plot(history.history['accuracy'], label='Train Acc')
-    plt.plot(history.history['val_accuracy'], label='Val Acc')
+    plt.plot(history.history['accuracy'], label='Train')
+    plt.plot(history.history['val_accuracy'], label='Val')
     plt.title('Accuracy')
-    plt.xlabel('Épocas')
-    plt.ylabel('Acurácia')
     plt.legend()
-
     plt.tight_layout()
-    plt.savefig(f"{OUTPUT_DIR}/{filename_prefix}_training_metrics.png")
+    fig_path = f'{OUTPUT_DIR}/{prefix}_metrics.png'
+    plt.savefig(fig_path)
     plt.close()
+    logger.info('Saved metric plot to %s', fig_path)
 
-def evaluate_and_plot_confusion_matrix(model, valid_generator, model_name):
-    val_loss, val_accuracy = model.evaluate(valid_generator, verbose=0)
-    print(f"{model_name} -> Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
 
-    valid_generator.reset()
-    y_pred_proba = model.predict(valid_generator, steps=math.ceil(valid_generator.n / valid_generator.batch_size))
-    y_pred = np.argmax(y_pred_proba, axis=1)
-    y_true = valid_generator.classes
+def evaluate(model, generator, name):
+    """Evaluate model with low‑memory prediction to avoid freezes."""
+    logger.info('Evaluating %s', name)
+    val_loss, val_acc = model.evaluate(generator, verbose=0)
+    logger.info('%s -> Val Loss: %.4f | Val Acc: %.4f', name, val_loss, val_acc)
 
-    # Kappa
+    generator.reset()
+    y_pred_batches = []
+    total_samples = generator.samples
+    batch_size = generator.batch_size
+
+    for i in range(len(generator)):
+        batch_x, _ = generator[i]
+        preds = model.predict_on_batch(batch_x)
+        y_pred_batches.append(np.argmax(preds, axis=1))
+        # Free GPU/CPU RAM periodically
+        del batch_x, preds
+        gc.collect()
+        if (i + 1) * batch_size >= total_samples:
+            break
+
+    y_pred = np.concatenate(y_pred_batches)[:total_samples]
+    y_true = generator.classes
+
     kappa = cohen_kappa_score(y_true, y_pred, weights='quadratic')
-    print(f"{model_name} -> Cohen's Kappa: {kappa:.4f}")
+    logger.info('%s -> Cohen Kappa: %.4f', name, kappa)
 
-    # Classification Report
-    print(classification_report(y_true, y_pred, digits=4))
-
-    # Plot da Matriz de Confusão
     cm = confusion_matrix(y_true, y_pred)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot()
-    plt.title(f"Matriz de Confusão - {model_name}")
-    plt.savefig(f"{OUTPUT_DIR}/{model_name}_confusion_matrix.png")
+    cm_path = f'{OUTPUT_DIR}/{name}_cm.png'
+    plt.title(f'Confusion Matrix - {name}')
+    plt.savefig(cm_path)
     plt.close()
-
+    logger.info('Saved confusion matrix to %s', cm_path)
     return kappa
 
-# =============================================================================
-# Construindo o modelo EfficientNetB3
-# =============================================================================
-print("\n--- Preparando EfficientNetB3 ---")
-model_b3 = build_efficientnet_b3()
 
-# Verifica se há checkpoint de pesos salvos
+def train_model(model, train_gen, valid_gen, ckpt_path):
+    logger.info('Beginning initial training — saving best weights to %s', ckpt_path)
+    callbacks = [
+        ModelCheckpoint(ckpt_path, monitor='val_loss', save_best_only=True, save_weights_only=True, verbose=1, mode='min'),
+        EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-7, verbose=1),
+        LogCallback()
+    ]
+    labels = train_gen.classes
+    cw = class_weight.compute_class_weight(class_weight='balanced', classes=np.unique(labels), y=labels)
+    logger.info('Class weights: %s', cw)
+    history = model.fit(train_gen, validation_data=valid_gen, epochs=EPOCHS, callbacks=callbacks, class_weight=dict(enumerate(cw)))
+    return history
+
+
+def fine_tune(model, train_gen, valid_gen, ckpt_path, layers_to_unfreeze=20):
+    logger.info('Starting fine‑tuning: unfreezing last %d layers', layers_to_unfreeze)
+    for layer in model.layers[-layers_to_unfreeze:]:
+        layer.trainable = True
+    model.compile(optimizer=tf.keras.optimizers.Adam(1e-5), loss=focal_loss(), metrics=['accuracy'])
+    callbacks = [
+        ModelCheckpoint(ckpt_path, monitor='val_loss', save_best_only=True, save_weights_only=True, verbose=1, mode='min'),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-7, verbose=1),
+        LogCallback()
+    ]
+    history = model.fit(train_gen, validation_data=valid_gen, initial_epoch=EPOCHS, epochs=EPOCHS + FINE_TUNE_EPOCHS, callbacks=callbacks)
+    return history
+
+# -------------------------------------------------------------
+# MODEL TRAINING
+# -------------------------------------------------------------
+try:
+    logger.info('Building EfficientNetB3 model')
+    model_eff = build_efficientnet_b3()
+    logger.info('Building DenseNet169 model')
+    model_dense = build_densenet169()
+except Exception:
+    logger.exception('Error while building models')
+    raise
+
 if os.path.exists(EFF_WEIGHTS_PATH) and os.path.getsize(EFF_WEIGHTS_PATH) > 0:
-    model_b3.load_weights(EFF_WEIGHTS_PATH)
-    print("Pesos do EfficientNetB3 carregados do checkpoint.")
+    logger.info('Loading EfficientNetB3 weights from %s', EFF_WEIGHTS_PATH)
+    model_eff.load_weights(EFF_WEIGHTS_PATH)
 else:
-    print("Checkpoint do EfficientNetB3 não encontrado. Treinando do zero.")
+    logger.info('No EfficientNetB3 weights found — training from scratch')
 
-checkpoint_eff = ModelCheckpoint(EFF_WEIGHTS_PATH, monitor='val_loss', save_best_only=True,
-                                 verbose=1, mode='min', save_weights_only=True)
-early_stopping = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
-reduce_lr_eff = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-7, verbose=1)
-
-train_labels_eff = train_generator_eff.classes
-class_weights_eff = class_weight.compute_class_weight(
-    class_weight='balanced',
-    classes=np.unique(train_labels_eff),
-    y=train_labels_eff
-)
-class_weights_eff = dict(enumerate(class_weights_eff))
-
-history_b3 = model_b3.fit(
-    train_generator_eff,
-    validation_data=valid_generator_eff,
-    epochs=EPOCHS,
-    callbacks=[checkpoint_eff, early_stopping],
-    class_weight=class_weights_eff
-)
-
-plot_metrics(history_b3, 'efficientnetb3')
-kappa_b3 = evaluate_and_plot_confusion_matrix(model_b3, valid_generator_eff, 'EfficientNetB3')
-
-# =============================================================================
-# Construindo o modelo DenseNet169
-# =============================================================================
-print("\n--- Preparando DenseNet169 ---")
-model_dn = build_densenet169()
-
-# Verifica se há checkpoint de pesos salvos
-if os.path.exists(DN_WEIGHTS_PATH) and os.path.getsize(DN_WEIGHTS_PATH) > 0:
-    model_dn.load_weights(DN_WEIGHTS_PATH)
-    print("Pesos do DenseNet169 carregados do checkpoint.")
+if os.path.exists(DENSE_WEIGHTS_PATH) and os.path.getsize(DENSE_WEIGHTS_PATH) > 0:
+    logger.info('Loading DenseNet169 weights from %s', DENSE_WEIGHTS_PATH)
+    model_dense.load_weights(DENSE_WEIGHTS_PATH)
 else:
-    print("Checkpoint do DenseNet169 não encontrado. Treinando do zero.")
+    logger.info('No DenseNet169 weights found — training from scratch')
 
-checkpoint_dn = ModelCheckpoint(DN_WEIGHTS_PATH, monitor='val_loss', save_best_only=True,
-                                verbose=1, mode='min', save_weights_only=True)
-reduce_lr_dn = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=2, min_lr=1e-7, verbose=1)
+# Initial training
+hist_eff = train_model(model_eff, train_gen_eff, valid_gen_eff, EFF_WEIGHTS_PATH)
+plot_metrics(hist_eff, 'efficientnetb3')
+kappa_eff = evaluate(model_eff, valid_gen_eff, 'EfficientNetB3')
 
-train_labels_dn = train_generator_dn.classes
-class_weights_dn = class_weight.compute_class_weight(
-    class_weight='balanced',
-    classes=np.unique(train_labels_dn),
-    y=train_labels_dn
-)
-class_weights_dn = dict(enumerate(class_weights_dn))
+hist_dense = train_model(model_dense, train_gen_dense, valid_gen_dense, DENSE_WEIGHTS_PATH)
+plot_metrics(hist_dense, 'densenet169')
+kappa_dense = evaluate(model_dense, valid_gen_dense, 'DenseNet169')
 
-history_dn = model_dn.fit(
-    train_generator_dn,
-    validation_data=valid_generator_dn,
-    epochs=EPOCHS,
-    callbacks=[checkpoint_dn, early_stopping],
-    class_weight=class_weights_dn
-)
+# Fine tuning
+hist_eff_ft = fine_tune(model_eff, train_gen_eff, valid_gen_eff, EFF_WEIGHTS_PATH)
+plot_metrics(hist_eff_ft, 'efficientnetb3_finetune')
+kappa_eff_ft = evaluate(model_eff, valid_gen_eff, 'EfficientNetB3_FT')
 
-plot_metrics(history_dn, 'densenet169')
-kappa_dn = evaluate_and_plot_confusion_matrix(model_dn, valid_generator_dn, 'DenseNet169')
+hist_dense_ft = fine_tune(model_dense, train_gen_dense, valid_gen_dense, DENSE_WEIGHTS_PATH)
+plot_metrics(hist_dense_ft, 'densenet169_finetune')
+kappa_dense_ft = evaluate(model_dense, valid_gen_dense, 'DenseNet169_FT')
 
-# =============================================================================
-# Fine Tuning EfficientNetB3
-# =============================================================================
-print("\n--- Fine Tuning EfficientNetB3 ---")
-for layer in model_b3.layers[-20:]:
-    layer.trainable = True
-
-model_b3.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-    loss=focal_loss(),
-    metrics=['accuracy']
-)
-
-history_eff_fine = model_b3.fit(
-    train_generator_eff,
-    validation_data=valid_generator_eff,
-    initial_epoch=EPOCHS,
-    epochs=EPOCHS + FINE_TUNE_EPOCHS,
-    callbacks=[checkpoint_eff, reduce_lr_eff],
-    class_weight=class_weights_eff
-)
-
-plot_metrics(history_eff_fine, 'efficientnetb3_finetune')
-kappa_b3_fine = evaluate_and_plot_confusion_matrix(model_b3, valid_generator_eff, 'EfficientNetB3_FineTune')
-
-# =============================================================================
-# Fine Tuning DenseNet169
-# =============================================================================
-print("\n--- Fine Tuning DenseNet169 ---")
-for layer in model_dn.layers[-20:]:
-    layer.trainable = True
-
-model_dn.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-    loss=focal_loss(),
-    metrics=['accuracy']
-)
-
-history_dn_fine = model_dn.fit(
-    train_generator_dn,
-    validation_data=valid_generator_dn,
-    initial_epoch=EPOCHS,
-    epochs=EPOCHS + FINE_TUNE_EPOCHS,
-    callbacks=[checkpoint_dn, reduce_lr_dn],
-    class_weight=class_weights_dn
-)
-
-plot_metrics(history_dn_fine, 'densenet169_finetune')
-kappa_dn_fine = evaluate_and_plot_confusion_matrix(model_dn, valid_generator_dn, 'DenseNet169_FineTune')
-
-# =============================================================================
-# Resultados Finais
-# =============================================================================
-print("\n======== RESULTADOS FINAIS ========")
-print(f"EfficientNetB3 (inicial): {kappa_b3:.4f} | Fine-Tuning: {kappa_b3_fine:.4f}")
-print(f"DenseNet169    (inicial): {kappa_dn:.4f} | Fine-Tuning: {kappa_dn_fine:.4f}")
-print("====================================\n")
+# -------------------------------------------------------------
+# RESULTS & LOGGING
+# -------------------------------------------------------------
+logger.info('\n======== FINAL RESULTS ========')
+logger.info('EfficientNetB3  (init): %.4f | FT: %.4f', kappa_eff, kappa_eff_ft)
+logger.info('DenseNet169     (init): %.4f | FT: %.4f', kappa_dense, kappa_dense_ft)
+logger.info('===================================\n')
 
 results = {
     'Model': ['EfficientNetB3', 'DenseNet169'],
     'Epochs': [EPOCHS, EPOCHS],
     'Fine_Tuning_Epochs': [FINE_TUNE_EPOCHS, FINE_TUNE_EPOCHS],
-    'Initial_Kappa': [kappa_b3, kappa_dn],
-    'Fine_Tuning_Kappa': [kappa_b3_fine, kappa_dn_fine]
+    'Initial_Kappa': [kappa_eff, kappa_dense],
+    'Fine_Tuning_Kappa': [kappa_eff_ft, kappa_dense_ft],
 }
 
-path = os.path.join(OUTPUT_DIR, 'train_history.csv')
-if os.path.exists(path) and os.path.getsize(path) > 0:
-    results_df = pd.read_csv(path)
-    results_df = pd.concat([results_df, pd.DataFrame(results)], ignore_index=True)
-else:
-    results_df = pd.DataFrame(results)
-results_df.to_csv(path, index=False)
+out_path = os.path.join(OUTPUT_DIR, 'train_history.csv')
+pd.DataFrame(results).to_csv(
+    out_path,
+    mode='a' if os.path.exists(out_path) else 'w',
+    header=not os.path.exists(out_path),
+    index=False
+)
+
+logger.info('Training history saved to %s', out_path)
+logger.info('Execution finished — see %s for detailed logs', log_path)
