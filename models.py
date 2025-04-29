@@ -67,8 +67,8 @@ IMG_PATH = '/app/resized_train'
 CSV_PATH = '/app/CNN_Rtinopatia_Diabetica/trainLabels3.csv'
 SAMPLE_FRAC = 1
 BATCH_SIZE = 48
-EPOCHS = 5
-FINE_TUNE_EPOCHS = 5
+EPOCHS = 10
+FINE_TUNE_EPOCHS = 10
 EFF_WEIGHTS_PATH = os.path.join(OUTPUT_DIR, 'efficientnetb3_weights_only.h5')
 DENSE_WEIGHTS_PATH = os.path.join(OUTPUT_DIR, 'densenet169_weights_only.h5')
 
