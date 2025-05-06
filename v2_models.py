@@ -105,7 +105,7 @@ def build_aug(size):
         A.Rotate(limit=20, p=0.7),
         A.RandomBrightnessContrast(0.2,0.2, p=0.7),
         A.GaussNoise(p=0.4),
-        A.Cutout(num_holes=8, max_h_size=size//10, max_w_size=size//10, p=0.5),
+        A.CoarseDropout(max_holes=8, max_height=size//10, max_width=size//10, fill_value=0, p=0.5),
     ])
     val_aug = A.Compose([A.Resize(size,size)])
     return train_aug, val_aug
@@ -205,10 +205,13 @@ results=[]
 for cfg in MODELS:
     name, size, wpath = cfg['name'], cfg['input'], cfg['weights']
     logger.info('\n===== %s (%d px) =====', name, size)
+    logger.info('Initializing build_aug for %s', name)
     aug_t, aug_v = build_aug(size)
+    logger.info('Augmentation successfully built')
+    logger.info('Initializing DRSeq for %s', name)
     tr_seq = DRSeq(train_df, BATCH_SIZE, size, aug_t, aug_v, True)
     va_seq = DRSeq(val_df,   BATCH_SIZE, size, aug_t, aug_v, False)
-
+    logger.info('DRSeq successfully built')
     base, model = build_backbone(name,size)
     for layer in base.layers: layer.trainable=False
     model.compile(tf.keras.optimizers.Adam(1e-4), qwk_loss, ['accuracy'])
